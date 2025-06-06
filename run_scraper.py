@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import argparse
-from gramedia_scraper import GramediaScraper
+import sys
+from gramedia_scraper import GramediaScraper, debug_print
 
 def main():
     # Parse command line arguments
@@ -15,15 +16,18 @@ def main():
                         help="Number of concurrent product extractions (default: 10)")
     args = parser.parse_args()
     
+    # Pastikan output tidak di-buffer
+    sys.stdout.reconfigure(line_buffering=True)
+    
     # Run scraper
-    print(f"Memulai scraping {args.num_products} produk dari Gramedia dengan {args.concurrent} ekstraksi paralel...")
+    debug_print(f"Memulai scraping {args.num_products} produk dari Gramedia dengan {args.concurrent} ekstraksi paralel...")
     scraper = GramediaScraper(headless=not args.no_headless)
     try:
         scraper.scrape_products(max_products=args.num_products, output_file=args.output, concurrent_extractions=args.concurrent)
     finally:
         scraper.close()
     
-    print(f"Proses selesai. Data disimpan ke {args.output}")
+    debug_print(f"Proses selesai. Data disimpan ke {args.output}")
 
 if __name__ == "__main__":
     main() 
