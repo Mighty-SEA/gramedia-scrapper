@@ -1,0 +1,35 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Output files
+*.json
+*.csv
+*.xlsx
+
+# Logs
+*.log
+
+# Chromedriver
+chromedriver
+chromedriver.exe
+
+# Local configuration
+.env 
