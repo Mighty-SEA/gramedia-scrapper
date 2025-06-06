@@ -7,6 +7,8 @@ Script Python untuk mengumpulkan data produk buku dari situs Gramedia.com.
 - Mengumpulkan link produk dari halaman kategori buku
 - Mengekstrak detail produk seperti nama, deskripsi, penerbit, ISBN, dll
 - Menyimpan data dalam format JSON
+- Mendukung tombol "Muat Lebih Banyak" untuk mengambil lebih dari 49 produk
+- Mode headless dan non-headless
 
 ## Persyaratan
 
@@ -75,9 +77,15 @@ Jika scraper tidak berjalan dengan baik, coba langkah-langkah berikut:
    ```
    Script ini akan membuat folder `debug` yang berisi HTML halaman kategori dan produk untuk analisis.
 
-3. Periksa file `gramedia_page.html` yang dibuat jika scraper tidak dapat menemukan produk.
+3. Untuk menguji khusus tombol "Muat Lebih Banyak", gunakan script debug khusus:
+   ```bash
+   python debug_load_more.py
+   ```
+   Script ini akan mencoba mengklik tombol dan menyimpan informasi debugging di folder `debug`.
 
-4. Pastikan koneksi internet Anda stabil.
+4. Periksa file `gramedia_page.html` yang dibuat jika scraper tidak dapat menemukan produk.
+
+5. Pastikan koneksi internet Anda stabil.
 
 ## Format Data Output
 
@@ -107,4 +115,12 @@ Data akan disimpan dalam format JSON dengan struktur sebagai berikut:
 
 - Gunakan script ini dengan bijak dan bertanggung jawab
 - Berikan jeda waktu yang cukup antara request untuk menghindari pembatasan akses dari server
-- Script ini dibuat untuk tujuan pembelajaran dan penggunaan pribadi 
+- Script ini dibuat untuk tujuan pembelajaran dan penggunaan pribadi
+
+## Update Terbaru
+
+- **v1.1.0** - Perbaikan dukungan tombol "Muat Lebih Banyak" untuk mengambil lebih dari 49 produk
+  - Menambahkan selector yang tepat untuk tombol "Muat Lebih Banyak" (`button[data-testid='categoriesLoadMore']`)
+  - Menambahkan mekanisme fallback jika selector utama gagal
+  - Menambahkan script debug khusus (`debug_load_more.py`) untuk menguji tombol
+  - Meningkatkan logging untuk memudahkan debugging 

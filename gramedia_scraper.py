@@ -119,42 +119,70 @@ class GramediaScraper:
             attempts += 1
             print(f"Mencoba memuat lebih banyak produk (percobaan {attempts}/{max_attempts})...")
             
-            # Coba beberapa kemungkinan selector untuk tombol "Muat Lebih Banyak"
-            load_more_selectors = [
-                "button.load-more",
-                ".load-more-button",
-                "button[data-testid='load-more-button']",
-                "a.load-more",
-                ".pagination-next",
-                "button:contains('Muat Lebih')",
-                "button:contains('Load More')"
-            ]
+            # Scroll ke bagian bawah halaman untuk memastikan tombol terlihat
+            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2)
             
-            clicked = False
-            for selector in load_more_selectors:
+            # Coba temukan tombol dengan data-testid yang sesuai (berdasarkan hasil debugging)
+            load_more_button = None
+            try:
+                # Selector yang terbukti berhasil dari debugging
+                load_more_button = self.driver.find_element(By.CSS_SELECTOR, "button[data-testid='categoriesLoadMore']")
+                if load_more_button.is_displayed() and load_more_button.is_enabled():
+                    print("Menemukan tombol 'Muat Lebih Banyak' dengan data-testid='categoriesLoadMore'")
+                    print(f"Teks tombol: '{load_more_button.text}'")
+                    
+                    # Klik tombol menggunakan JavaScript
+                    self.driver.execute_script("arguments[0].click();", load_more_button)
+                    print("Tombol berhasil diklik, menunggu konten baru dimuat...")
+                    time.sleep(3)  # Tunggu konten baru dimuat
+                else:
+                    print("Tombol ditemukan tetapi tidak terlihat atau tidak aktif")
+                    break
+            except NoSuchElementException:
+                print("Tidak dapat menemukan tombol dengan data-testid='categoriesLoadMore'")
+                
+                # Coba cara alternatif jika selector utama gagal
+                clicked = False
+                
+                # Coba dengan XPath berdasarkan teks
                 try:
-                    # Scroll ke bagian bawah halaman
-                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-                    time.sleep(2)
-                    
-                    # Coba temukan tombol
-                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    for element in elements:
-                        if element.is_displayed() and element.is_enabled():
-                            print(f"Menemukan tombol 'Muat Lebih Banyak' dengan selector: {selector}")
-                            self.driver.execute_script("arguments[0].click();", element)
-                            clicked = True
-                            time.sleep(3)  # Tunggu konten baru dimuat
-                            break
-                    
-                    if clicked:
-                        break
+                    xpath_button = self.driver.find_element(By.XPATH, "//button[contains(text(), 'Muat Lebih Banyak')]")
+                    if xpath_button.is_displayed() and xpath_button.is_enabled():
+                        print("Menemukan tombol dengan XPath: //button[contains(text(), 'Muat Lebih Banyak')]")
+                        self.driver.execute_script("arguments[0].click();", xpath_button)
+                        clicked = True
+                        time.sleep(3)  # Tunggu konten baru dimuat
                 except Exception as e:
-                    print(f"Error dengan selector {selector}: {str(e)}")
-                    continue
-            
-            if not clicked:
-                print("Tidak dapat menemukan atau mengklik tombol 'Muat Lebih Banyak'")
+                    print(f"Tidak dapat menemukan tombol dengan XPath: {str(e)}")
+                
+                # Jika masih gagal, coba dengan mencari semua tombol dan memeriksa teksnya
+                if not clicked:
+                    try:
+                        buttons = self.driver.find_elements(By.TAG_NAME, "button")
+                        for button in buttons:
+                            try:
+                                button_text = button.text.strip()
+                                if "Muat Lebih Banyak" in button_text:
+                                    print(f"Menemukan tombol dengan teks: '{button_text}'")
+                                    self.driver.execute_script("arguments[0].click();", button)
+                                    clicked = True
+                                    time.sleep(3)  # Tunggu konten baru dimuat
+                                    break
+                            except:
+                                continue
+                    except Exception as e:
+                        print(f"Error saat mencari tombol berdasarkan teks: {str(e)}")
+                
+                if not clicked:
+                    print("Tidak dapat menemukan tombol 'Muat Lebih Banyak' dengan cara apapun")
+                    # Simpan HTML halaman untuk debugging
+                    with open(f"debug_load_more_attempt_{attempts}.html", "w", encoding="utf-8") as f:
+                        f.write(self.driver.page_source)
+                    print(f"HTML halaman disimpan ke debug_load_more_attempt_{attempts}.html untuk debugging")
+                    break
+            except Exception as e:
+                print(f"Error saat mencoba mengklik tombol: {str(e)}")
                 break
             
             # Ambil link produk baru
@@ -188,6 +216,8 @@ class GramediaScraper:
             if new_links_added == 0:
                 print("Tidak ada link produk baru yang ditemukan setelah mengklik tombol")
                 break
+            
+            print(f"Berhasil menambahkan {new_links_added} produk baru (total: {len(product_links)})")
         
         print(f"Total link produk yang dikumpulkan: {len(product_links)}")
         return product_links[:max_products]
