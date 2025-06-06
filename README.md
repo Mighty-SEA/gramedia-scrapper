@@ -6,6 +6,7 @@ Script Python untuk mengumpulkan data produk buku dari situs Gramedia.com.
 
 - Mengumpulkan link produk dari halaman kategori buku
 - Mengekstrak detail produk seperti nama, deskripsi, penerbit, ISBN, dll
+- Mengekstrak URL gambar produk
 - Menyimpan data dalam format JSON
 - Mendukung tombol "Muat Lebih Banyak" untuk mengambil lebih dari 49 produk
 - Mode headless dan non-headless
@@ -104,6 +105,7 @@ Data akan disimpan dalam format JSON dengan struktur sebagai berikut:
     "url": "https://www.gramedia.com/products/contoh-buku",
     "nama_produk": "Judul Buku",
     "deskripsi": "Deskripsi buku...",
+    "gambar_url": "https://image.gramedia.net/rs:fit:0:0/plain/https://cdn.gramedia.com/uploads/items/contoh-buku.jpg",
     "detail_produk": {
       "Penerbit": "Nama Penerbit",
       "ISBN": "1234567890123",
@@ -126,6 +128,12 @@ Data akan disimpan dalam format JSON dengan struktur sebagai berikut:
 - Perhatikan bahwa situs web dapat memiliki batas jumlah produk yang bisa ditampilkan
 
 ## Update Terbaru
+
+- **v1.3.0** - Menambahkan fitur ekstraksi URL gambar produk
+  - Mengekstrak URL gambar produk dari halaman detail produk
+  - Menambahkan filter untuk memastikan URL gambar yang valid (menghindari URL pelacakan)
+  - Menambahkan fallback dengan beberapa metode ekstraksi gambar
+  - Mendukung pengambilan screenshot gambar produk jika metode lain gagal
 
 - **v1.2.0** - Peningkatan kemampuan mengambil produk dalam jumlah besar
   - Meningkatkan jumlah maksimum percobaan klik tombol "Muat Lebih Banyak" (dari 10 menjadi 100)

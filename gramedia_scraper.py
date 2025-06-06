@@ -292,6 +292,9 @@ class GramediaScraper:
             "detail_produk": {}
         }
         
+        # Ekstrak URL gambar produk
+        product_data["gambar_url"] = self._extract_product_image(soup, url)
+        
         # Ekstrak detail produk menggunakan selector baru berdasarkan contoh HTML yang diberikan
         # Cari container detail buku
         detail_container = soup.select_one("div[data-testid='productDetailSpecificationContainer']")
@@ -347,6 +350,168 @@ class GramediaScraper:
                         product_data["detail_produk"][field] = match.group(1).strip()
         
         return product_data
+    
+    def _extract_product_image(self, soup, url=""):
+        """Mengekstrak URL gambar produk dari halaman produk"""
+        # Coba beberapa selector yang mungkin untuk gambar produk
+        image_selectors = [
+            "img.product-main-image",
+            "div.product-gallery__main-image img",
+            "div.product-image-container img",
+            "div.product-detail-image img",
+            "div[data-testid='productDetailGallery'] img",
+            "div[data-testid='productGallery'] img",
+            "div.product-detail__gallery img",
+            "div.product-image img",
+            "img[alt*='product']",
+            "img[alt*='buku']",
+            "img.product-image",
+            "img.product-detail-image",
+            "img[data-testid='productImage']"
+        ]
+        
+        # Coba dapatkan URL gambar dengan selector
+        for selector in image_selectors:
+            img_elem = soup.select_one(selector)
+            if img_elem and img_elem.has_attr("src"):
+                src = img_elem.get("src")
+                # Filter URL yang bukan URL gambar (menghindari URL pelacakan)
+                if src and (src.startswith("http") or src.startswith("/")) and self._is_image_url(src):
+                    # Jika URL relatif, tambahkan domain
+                    if src.startswith("/"):
+                        src = f"https://www.gramedia.com{src}"
+                    return src
+            
+            # Coba dengan data-src jika src tidak ada
+            if img_elem and img_elem.has_attr("data-src"):
+                data_src = img_elem.get("data-src")
+                if data_src and (data_src.startswith("http") or data_src.startswith("/")) and self._is_image_url(data_src):
+                    # Jika URL relatif, tambahkan domain
+                    if data_src.startswith("/"):
+                        data_src = f"https://www.gramedia.com{data_src}"
+                    return data_src
+        
+        # Jika tidak menemukan dengan selector, cari semua img dan pilih yang paling relevan
+        all_images = soup.select("img")
+        for img in all_images:
+            if img.has_attr("src"):
+                src = img.get("src")
+                # Cek apakah ini kemungkinan gambar produk
+                if src and self._is_image_url(src) and not ("icon" in src or "logo" in src):
+                    if src.startswith("/"):
+                        src = f"https://www.gramedia.com{src}"
+                    return src
+            
+            # Coba dengan data-src
+            if img.has_attr("data-src"):
+                data_src = img.get("data-src")
+                if data_src and self._is_image_url(data_src) and not ("icon" in data_src or "logo" in data_src):
+                    if data_src.startswith("/"):
+                        data_src = f"https://www.gramedia.com{data_src}"
+                    return data_src
+        
+        # Coba dengan JavaScript untuk mendapatkan gambar produk
+        try:
+            # Coba dapatkan URL gambar dengan JavaScript
+            js_image_url = self.driver.execute_script("""
+                // Coba dapatkan elemen gambar utama
+                var imgSelectors = [
+                    'img.product-main-image',
+                    'div.product-gallery__main-image img',
+                    'div.product-image-container img',
+                    'div.product-detail-image img',
+                    'div[data-testid="productDetailGallery"] img',
+                    'div[data-testid="productGallery"] img',
+                    'div.product-detail__gallery img',
+                    'div.product-image img',
+                    'img.product-image',
+                    'img.product-detail-image',
+                    'img[data-testid="productImage"]'
+                ];
+                
+                for (var i = 0; i < imgSelectors.length; i++) {
+                    var img = document.querySelector(imgSelectors[i]);
+                    if (img) {
+                        var src = img.src || img.dataset.src;
+                        if (src && (src.endsWith('.jpg') || src.endsWith('.jpeg') || 
+                                   src.endsWith('.png') || src.endsWith('.webp') || 
+                                   src.includes('/images/') || src.includes('/img/'))) {
+                            return src;
+                        }
+                    }
+                }
+                
+                // Jika tidak menemukan dengan selector spesifik, cari semua img
+                var allImages = document.querySelectorAll('img');
+                for (var i = 0; i < allImages.length; i++) {
+                    var src = allImages[i].src || allImages[i].dataset.src;
+                    if (src && (src.endsWith('.jpg') || src.endsWith('.jpeg') || 
+                               src.endsWith('.png') || src.endsWith('.webp') || 
+                               src.includes('/images/') || src.includes('/img/')) && 
+                        !(src.includes('icon') || src.includes('logo'))) {
+                        return src;
+                    }
+                }
+                
+                return null;
+            """)
+            
+            if js_image_url and self._is_image_url(js_image_url):
+                return js_image_url
+        except Exception as e:
+            print(f"Error saat mengambil URL gambar dengan JavaScript: {str(e)}")
+        
+        # Jika masih tidak menemukan, coba dengan cara lain
+        try:
+            # Ambil screenshot elemen gambar produk jika ada
+            product_image_elem = None
+            for selector in image_selectors:
+                try:
+                    product_image_elem = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    if product_image_elem:
+                        break
+                except:
+                    continue
+            
+            if product_image_elem:
+                # Buat direktori untuk menyimpan gambar jika belum ada
+                os.makedirs("product_images", exist_ok=True)
+                
+                # Ambil nama file dari URL produk
+                product_id = url.split('/')[-1]
+                image_path = f"product_images/{product_id}.png"
+                
+                # Ambil screenshot elemen gambar
+                product_image_elem.screenshot(image_path)
+                print(f"Gambar produk disimpan ke {image_path}")
+                
+                # Kembalikan path lokal gambar
+                return image_path
+        except Exception as e:
+            print(f"Error saat mengambil screenshot gambar produk: {str(e)}")
+        
+        return ""  # Return string kosong jika tidak menemukan gambar
+    
+    def _is_image_url(self, url):
+        """Memeriksa apakah URL adalah URL gambar yang valid"""
+        # Cek ekstensi file gambar umum
+        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg']
+        if any(url.lower().endswith(ext) for ext in image_extensions):
+            return True
+        
+        # Cek path yang umum digunakan untuk gambar
+        image_paths = ['/images/', '/img/', '/photos/', '/product/', '/products/', '/cover/', '/covers/', 
+                      'image.gramedia.net', 'cdn.gramedia.com']
+        if any(path in url.lower() for path in image_paths):
+            return True
+        
+        # Hindari URL pelacakan dan skrip
+        tracking_patterns = ['track.', 'tracking.', 'analytics.', 'pixel.', 'beacon.', 
+                           'adsct', 'omguk.com', 'javascript:', 'data:']
+        if any(pattern in url.lower() for pattern in tracking_patterns):
+            return False
+        
+        return False
     
     def _get_text(self, soup, selector, default=""):
         """Helper untuk mengambil teks dari elemen"""
