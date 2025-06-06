@@ -12,6 +12,7 @@ import time
 import json
 import os
 import re
+import concurrent.futures
 
 class GramediaScraper:
     def __init__(self, headless=True):
@@ -262,6 +263,124 @@ class GramediaScraper:
         print(f"Total link produk yang dikumpulkan: {len(product_links)}")
         return product_links[:max_products]
     
+    def _extract_categories_from_breadcrumb(self, soup):
+        """Mengekstrak kategori produk dari breadcrumb"""
+        categories = []
+        found_buku = False
+        
+        # Coba berbagai selector untuk container breadcrumb
+        breadcrumb_container_selectors = [
+            "div[data-testid='breadcrumb']",
+            "nav.breadcrumb",
+            "div.breadcrumbs",
+            "div[class*='breadcrumb']",
+            "ol.breadcrumb",
+            "ul.breadcrumb",
+            "div[data-id='productDetailBreadcrumbs']", 
+            "div[data-testid='productDetailBreadcrumbs']", 
+            "nav[aria-label='breadcrumb']",
+            ".breadcrumbs",
+            ".breadcrumb-container",
+            "[itemprop='breadcrumb']"
+        ]
+        
+        breadcrumb_container = None
+        for selector in breadcrumb_container_selectors:
+            container = soup.select_one(selector)
+            if container:
+                print(f"Menemukan container breadcrumb dengan selector: {selector}")
+                breadcrumb_container = container
+                break
+                
+        if not breadcrumb_container:
+            print("Tidak dapat menemukan container breadcrumb dengan selector standar")
+            # Mencoba alternatif lain: cari elemen dengan class yang mengandung 'breadcrumb'
+            breadcrumb_classes = soup.find_all(class_=lambda c: c and 'breadcrumb' in c.lower())
+            if breadcrumb_classes:
+                print(f"Menemukan elemen dengan class breadcrumb: {breadcrumb_classes[0].name}")
+                breadcrumb_container = breadcrumb_classes[0]
+            else:
+                print("Tidak dapat menemukan elemen dengan class breadcrumb")
+                return categories
+            
+        # Coba berbagai selector untuk item breadcrumb
+        breadcrumb_item_selectors = [
+            "li.breadcrumb-item a",
+            "li a",
+            "a[href*='/categories/']",
+            "a",
+            "span.breadcrumb-item",
+            "span",
+            "div.breadcrumb-item",
+            "[data-testid='breadcrumb-item']",
+            ".breadcrumb-item a",
+            "[data-testid^='categoriesBreadcrumbsItem'] a",
+            "[data-testid^='productDetailBreadcrumbsCategory'] a"
+        ]
+        
+        breadcrumb_items = []
+        for selector in breadcrumb_item_selectors:
+            items = breadcrumb_container.select(selector)
+            if items:
+                print(f"Menemukan {len(items)} item breadcrumb dengan selector: {selector}")
+                breadcrumb_items = items
+                break
+                
+        if not breadcrumb_items:
+            print("Tidak dapat menemukan item breadcrumb dengan selector standar")
+            # Coba alternatif: semua link dalam container
+            all_links = breadcrumb_container.find_all('a')
+            if all_links:
+                print(f"Menemukan {len(all_links)} link dalam container breadcrumb")
+                breadcrumb_items = all_links
+            else:
+                print("Tidak ada link dalam container breadcrumb")
+                return categories
+            
+        # Iterasi melalui item breadcrumb
+        print("Item breadcrumb yang ditemukan:")
+        for item in breadcrumb_items:
+            text = item.get_text(strip=True)
+            href = item.get("href", "")
+            print(f"  - {text} ({href})")
+            
+            # Tandai jika menemukan "Buku"
+            if text.lower() == "buku":
+                found_buku = True
+                print(f"    Menemukan 'Buku' di breadcrumb")
+                continue  # Lewati "Buku" itu sendiri
+            
+            # Ambil kategori setelah "Buku"
+            if found_buku and text.lower() != "home":
+                categories.append(text)
+                print(f"    Menambahkan kategori: {text}")
+            # Jika tidak menemukan "Buku" namun memiliki "/categories/buku/" dalam href
+            elif not found_buku and href and "/categories/buku/" in href:
+                categories.append(text)
+                print(f"    Menambahkan kategori dari URL: {text}")
+        
+        # Jika tidak menemukan kategori dengan cara di atas, coba cari dengan cara lain
+        if not categories:
+            # Coba cari semua link di breadcrumb yang mengandung "/categories/buku/"
+            category_links = soup.select("a[href*='/categories/buku/']")
+            for link in category_links:
+                text = link.get_text(strip=True)
+                if text.lower() != "buku" and text.lower() != "home":
+                    categories.append(text)
+                    print(f"Menambahkan kategori dari link alternatif: {text}")
+            
+            # Jika masih tidak menemukan, coba cari dengan URL yang berisi 'category'
+            if not categories:
+                category_links = soup.select("a[href*='category']")
+                for link in category_links:
+                    text = link.get_text(strip=True)
+                    if text.lower() != "buku" and text.lower() != "home" and text != "":
+                        categories.append(text)
+                        print(f"Menambahkan kategori dari link dengan 'category': {text}")
+        
+        print(f"Kategori yang ditemukan: {categories}")
+        return categories
+        
     def extract_product_details(self, url):
         """Mengekstrak detail produk dari halaman produk"""
         print(f"Mengekstrak data dari: {url}")
@@ -291,6 +410,11 @@ class GramediaScraper:
             "deskripsi": self._get_text(soup, "div.description, div[data-testid='product-description'], div[data-testid='productDetailDescriptionContainer']"),
             "detail_produk": {}
         }
+        
+        # Ekstrak kategori dari breadcrumb
+        categories = self._extract_categories_from_breadcrumb(soup)
+        if categories:
+            product_data["kategori"] = ",".join(categories)
         
         # Ekstrak URL gambar produk
         product_data["gambar_url"] = self._extract_product_image(soup, url)
@@ -518,25 +642,221 @@ class GramediaScraper:
         element = soup.select_one(selector)
         return element.get_text(strip=True) if element else default
     
-    def scrape_products(self, max_products=100, output_file="gramedia_products.json"):
-        """Proses utama untuk scraping produk"""
+    def scrape_products(self, max_products=100, output_file="gramedia_products.json", concurrent_extractions=10):
+        """Proses utama untuk scraping produk dengan dukungan ekstraksi paralel"""
         product_links = self.collect_product_links(max_products)
         print(f"Berhasil mengumpulkan {len(product_links)} link produk")
         
         products_data = []
-        for i, link in enumerate(product_links, 1):
-            print(f"Memproses produk {i}/{len(product_links)}: {link}")
-            product_data = self.extract_product_details(link)
-            if product_data:
-                products_data.append(product_data)
-            time.sleep(1)  # Jeda untuk menghindari pembatasan akses
+        
+        # Buat fungsi untuk menjalankan ekstraksi
+        def extract_product(link, index):
+            print(f"Memproses produk {index+1}/{len(product_links)}: {link}")
+            # Buat driver terpisah untuk setiap thread
+            try:
+                chrome_options = Options()
+                chrome_options.add_argument("--headless=new")  # Selalu gunakan headless untuk thread
+                chrome_options.add_argument("--disable-gpu")
+                chrome_options.add_argument("--no-sandbox")
+                chrome_options.add_argument("--disable-dev-shm-usage")
+                chrome_options.add_argument("--disable-extensions")
+                chrome_options.add_argument("--disable-notifications")
+                chrome_options.add_argument("--disable-popup-blocking")
+                chrome_options.add_argument(f"user-agent={self.headers['User-Agent']}")
+                chrome_options.add_argument("--disable-webgl")
+                chrome_options.add_argument("--enable-unsafe-swiftshader")
+                
+                thread_driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+                
+                # Kunjungi URL
+                thread_driver.get(link)
+                
+                # Tunggu hingga elemen judul dimuat
+                try:
+                    WebDriverWait(thread_driver, 20).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "h1"))
+                    )
+                except TimeoutException:
+                    print(f"Timeout menunggu halaman produk dimuat: {link}")
+                    thread_driver.quit()
+                    return None
+                
+                time.sleep(3)  # Berikan waktu tambahan untuk memastikan semua konten dimuat
+                
+                soup = BeautifulSoup(thread_driver.page_source, "html.parser")
+                
+                # Ekstrak data produk
+                product_data = {
+                    "url": link,
+                    "nama_produk": self._get_text(soup, "h1"),
+                    "deskripsi": self._get_text(soup, "div.description, div[data-testid='product-description'], div[data-testid='productDetailDescriptionContainer']"),
+                    "detail_produk": {}
+                }
+                
+                # Ekstrak kategori dari breadcrumb - menggunakan pendekatan alternatif untuk thread
+                categories = []
+                
+                # Coba beberapa pendekatan untuk breadcrumb
+                # 1. Gunakan JavaScript untuk mengekstrak breadcrumb
+                try:
+                    js_breadcrumb = thread_driver.execute_script("""
+                        // Cari breadcrumb menggunakan berbagai selector
+                        var breadcrumbSelectors = [
+                            "div[data-testid='breadcrumb']",
+                            "nav.breadcrumb",
+                            "div.breadcrumbs",
+                            "div[class*='breadcrumb']",
+                            "ol.breadcrumb",
+                            "ul.breadcrumb",
+                            "div[data-id='productDetailBreadcrumbs']", 
+                            "div[data-testid='productDetailBreadcrumbs']", 
+                            "nav[aria-label='breadcrumb']"
+                        ];
+                        
+                        // Cari container breadcrumb
+                        var container = null;
+                        for (var i = 0; i < breadcrumbSelectors.length; i++) {
+                            container = document.querySelector(breadcrumbSelectors[i]);
+                            if (container) break;
+                        }
+                        
+                        if (!container) return [];
+                        
+                        // Cari semua link dalam breadcrumb
+                        var links = container.querySelectorAll('a');
+                        var categories = [];
+                        var foundBuku = false;
+                        
+                        for (var i = 0; i < links.length; i++) {
+                            var text = links[i].textContent.trim();
+                            if (text.toLowerCase() === 'buku') {
+                                foundBuku = true;
+                                continue;
+                            }
+                            
+                            if (foundBuku && text.toLowerCase() !== 'home') {
+                                categories.push(text);
+                            }
+                        }
+                        
+                        // Jika tidak menemukan kategori dengan cara di atas, coba cara lain
+                        if (categories.length === 0) {
+                            var categoryLinks = document.querySelectorAll("a[href*='/categories/buku/']");
+                            for (var i = 0; i < categoryLinks.length; i++) {
+                                var text = categoryLinks[i].textContent.trim();
+                                if (text.toLowerCase() !== 'buku' && text.toLowerCase() !== 'home') {
+                                    categories.push(text);
+                                }
+                            }
+                        }
+                        
+                        return categories;
+                    """)
+                    
+                    if js_breadcrumb and len(js_breadcrumb) > 0:
+                        categories = js_breadcrumb
+                        print(f"Kategori yang ditemukan dengan JavaScript: {categories}")
+                except Exception as e:
+                    print(f"Error saat mengekstrak breadcrumb dengan JavaScript: {str(e)}")
+                
+                # 2. Jika JavaScript gagal, coba dengan BeautifulSoup
+                if not categories:
+                    categories = self._extract_categories_from_breadcrumb(soup)
+                
+                # 3. Jika masih kosong, coba cari link kategori di halaman
+                if not categories:
+                    category_links = soup.select("a[href*='/categories/']")
+                    for link in category_links:
+                        text = link.get_text(strip=True)
+                        href = link.get("href", "")
+                        if "categories/buku" in href and text.lower() != "buku" and text.lower() != "home":
+                            categories.append(text)
+                
+                if categories:
+                    product_data["kategori"] = ",".join(categories)
+                
+                # Ekstrak URL gambar produk
+                product_data["gambar_url"] = self._extract_product_image(soup, link)
+                
+                # Ekstrak detail produk menggunakan selector baru berdasarkan contoh HTML yang diberikan
+                # Cari container detail buku
+                detail_container = soup.select_one("div[data-testid='productDetailSpecificationContainer']")
+                if detail_container:
+                    # Cari semua item detail
+                    detail_items = detail_container.select("div[data-testid^='productDetailSpecificationItem']")
+                    for item in detail_items:
+                        label_elem = item.select_one("div[data-testid='productDetailSpecificationItemLabel']")
+                        value_elem = item.select_one("div[data-testid='productDetailSpecificationItemValue']")
+                        
+                        if label_elem and value_elem:
+                            label = label_elem.get_text(strip=True)
+                            value = value_elem.get_text(strip=True)
+                            product_data["detail_produk"][label] = value
+                
+                # Jika detail produk masih kosong, coba pendekatan lain
+                if not product_data["detail_produk"]:
+                    # Coba pendekatan lama
+                    detail_elements = soup.select("div.product-info-item, div.product-detail-item, div[data-testid='product-detail-item']")
+                    for element in detail_elements:
+                        label_elem = element.select_one("div.product-info-label, div.product-detail-label, div[data-testid='product-detail-label']")
+                        value_elem = element.select_one("div.product-info-value, div.product-detail-value, div[data-testid='product-detail-value']")
+                        
+                        if label_elem and value_elem:
+                            label = label_elem.get_text(strip=True)
+                            value = value_elem.get_text(strip=True)
+                            product_data["detail_produk"][label] = value
+                
+                # Jika masih tidak menemukan detail, coba pendekatan lain
+                if not product_data["detail_produk"]:
+                    # Cari dalam tabel detail buku
+                    detail_table = soup.select_one("table.book-detail, table[data-testid='book-detail']")
+                    if detail_table:
+                        rows = detail_table.select("tr")
+                        for row in rows:
+                            cols = row.select("td")
+                            if len(cols) >= 2:
+                                label = cols[0].get_text(strip=True)
+                                value = cols[1].get_text(strip=True)
+                                product_data["detail_produk"][label] = value
+                
+                # Jika masih tidak menemukan detail, coba pendekatan lain dengan mencari pola dalam teks
+                if not product_data["detail_produk"]:
+                    detail_section = soup.select_one("div.product-details, div.book-details, div[data-testid='product-details']")
+                    if detail_section:
+                        detail_text = detail_section.get_text()
+                        # Cari pola seperti "Penerbit: Gramedia" atau "ISBN: 1234567890"
+                        common_fields = ["Penerbit", "ISBN", "Bahasa", "Lebar", "Tanggal Terbit", "Halaman", "Panjang", "Berat"]
+                        for field in common_fields:
+                            pattern = re.compile(f"{field}[\\s:]+([^\\n]+)")
+                            match = pattern.search(detail_text)
+                            if match:
+                                product_data["detail_produk"][field] = match.group(1).strip()
+                
+                thread_driver.quit()
+                return product_data
+            except Exception as e:
+                print(f"Error saat mengekstrak produk {link}: {str(e)}")
+                if 'thread_driver' in locals():
+                    thread_driver.quit()
+                return None
+        
+        # Proses link secara paralel dalam batch
+        with concurrent.futures.ThreadPoolExecutor(max_workers=concurrent_extractions) as executor:
+            futures = []
+            for i, link in enumerate(product_links):
+                futures.append(executor.submit(extract_product, link, i))
+            
+            for future in concurrent.futures.as_completed(futures):
+                product_data = future.result()
+                if product_data:
+                    products_data.append(product_data)
         
         # Simpan data ke file JSON
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(products_data, f, ensure_ascii=False, indent=2)
         
         print(f"Scraping selesai. Data disimpan ke {output_file}")
-        
+    
     def close(self):
         """Menutup driver browser"""
         if hasattr(self, "driver"):
@@ -547,6 +867,7 @@ if __name__ == "__main__":
     try:
         # Jumlah produk yang akan di-scrape (bisa diubah)
         num_products = 10
-        scraper.scrape_products(max_products=num_products)
+        # Jalankan scraping dengan ekstraksi 10 produk secara paralel
+        scraper.scrape_products(max_products=num_products, concurrent_extractions=10)
     finally:
         scraper.close() 

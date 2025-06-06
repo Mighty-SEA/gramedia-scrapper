@@ -11,6 +11,7 @@ Script Python untuk mengumpulkan data produk buku dari situs Gramedia.com.
 - Mendukung tombol "Muat Lebih Banyak" untuk mengambil lebih dari 49 produk
 - Mode headless dan non-headless
 - Kemampuan mengambil produk dalam jumlah besar (ratusan hingga ribuan)
+- Ekstraksi paralel untuk memproses hingga 10 produk sekaligus
 
 ## Persyaratan
 
@@ -63,6 +64,7 @@ python run_scraper.py --no-headless
 - `-n, --num-products`: Jumlah produk yang akan di-scrape (default: 10)
 - `-o, --output`: Nama file output JSON (default: gramedia_products.json)
 - `--no-headless`: Jalankan browser dalam mode visible (tidak headless)
+- `-c, --concurrent`: Jumlah ekstraksi produk paralel (default: 10)
 
 ## Pemecahan Masalah
 
@@ -128,6 +130,12 @@ Data akan disimpan dalam format JSON dengan struktur sebagai berikut:
 - Perhatikan bahwa situs web dapat memiliki batas jumlah produk yang bisa ditampilkan
 
 ## Update Terbaru
+
+- **v1.4.0** - Menambahkan fitur ekstraksi paralel
+  - Mengimplementasikan ThreadPoolExecutor untuk memproses hingga 10 produk secara bersamaan
+  - Menambahkan parameter `--concurrent` untuk mengontrol jumlah ekstraksi paralel
+  - Meningkatkan kecepatan ekstraksi data produk secara signifikan
+  - Setiap thread menggunakan driver browser terpisah untuk menghindari konflik
 
 - **v1.3.0** - Menambahkan fitur ekstraksi URL gambar produk
   - Mengekstrak URL gambar produk dari halaman detail produk

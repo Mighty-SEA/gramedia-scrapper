@@ -11,13 +11,15 @@ def main():
                         help="Output JSON file (default: gramedia_products.json)")
     parser.add_argument("--no-headless", action="store_true",
                         help="Run in non-headless mode (browser visible)")
+    parser.add_argument("-c", "--concurrent", type=int, default=10,
+                        help="Number of concurrent product extractions (default: 10)")
     args = parser.parse_args()
     
     # Run scraper
-    print(f"Memulai scraping {args.num_products} produk dari Gramedia...")
+    print(f"Memulai scraping {args.num_products} produk dari Gramedia dengan {args.concurrent} ekstraksi paralel...")
     scraper = GramediaScraper(headless=not args.no_headless)
     try:
-        scraper.scrape_products(max_products=args.num_products, output_file=args.output)
+        scraper.scrape_products(max_products=args.num_products, output_file=args.output, concurrent_extractions=args.concurrent)
     finally:
         scraper.close()
     
