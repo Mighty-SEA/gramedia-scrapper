@@ -254,6 +254,33 @@ class GramediaScraper:
         debug_print(f"Kategori yang ditemukan: {categories}")
         return categories
         
+    def _extract_author(self, soup):
+        """Mengekstrak nama penulis dari halaman produk"""
+        author_element = soup.select_one("a[data-testid='productDetailAuthor']")
+        if author_element:
+            author = author_element.get_text(strip=True)
+            debug_print(f"Penulis ditemukan: {author}")
+            return author
+        
+        debug_print("Penulis tidak ditemukan dengan selector utama")
+        # Coba selector alternatif jika yang utama tidak ditemukan
+        alt_author_selectors = [
+            "div[data-testid='productDetailAuthorContainer'] a", 
+            "div.product-author a",
+            "div.author a",
+            "a[href*='/author/']",
+            "span[data-testid='productDetailAuthor']",
+            "div[data-testid='productDetailAuthor']"
+        ]
+        for selector in alt_author_selectors:
+            author_element = soup.select_one(selector)
+            if author_element:
+                author = author_element.get_text(strip=True)
+                debug_print(f"Penulis ditemukan dengan selector alternatif {selector}: {author}")
+                return author
+        
+        return ""  # Return string kosong jika tidak menemukan penulis
+        
     def extract_product_details(self, url):
         """Mengekstrak detail produk dari halaman produk"""
         debug_print(f"Mengekstrak data dari: {url}")
@@ -283,6 +310,11 @@ class GramediaScraper:
             "deskripsi": self._get_text(soup, "div.description, div[data-testid='product-description'], div[data-testid='productDetailDescriptionContainer']"),
             "detail_produk": {}
         }
+        
+        # Ekstrak nama penulis
+        author = self._extract_author(soup)
+        if author:
+            product_data["penulis"] = author
         
         # Ekstrak kategori dari breadcrumb
         categories = self._extract_categories_from_breadcrumb(soup)
@@ -565,6 +597,11 @@ class GramediaScraper:
                     "deskripsi": self._get_text(soup, "div.description, div[data-testid='product-description'], div[data-testid='productDetailDescriptionContainer']"),
                     "detail_produk": {}
                 }
+                
+                # Ekstrak nama penulis
+                author = self._extract_author(soup)
+                if author:
+                    product_data["penulis"] = author
                 
                 # Ekstrak kategori dari breadcrumb - menggunakan pendekatan alternatif untuk thread
                 categories = []
