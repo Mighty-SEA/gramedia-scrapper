@@ -7,7 +7,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 import time
 import json
 import os
@@ -113,15 +113,25 @@ class GramediaScraper:
         
         # Jika masih belum cukup produk, coba klik tombol "Muat Lebih Banyak"
         attempts = 0
-        max_attempts = 10
+        max_attempts = 100  # Meningkatkan jumlah percobaan maksimum
+        consecutive_failures = 0
+        max_consecutive_failures = 3  # Berhenti setelah 3 kali gagal berturut-turut
         
-        while len(product_links) < max_products and attempts < max_attempts:
+        while len(product_links) < max_products and attempts < max_attempts and consecutive_failures < max_consecutive_failures:
             attempts += 1
             print(f"Mencoba memuat lebih banyak produk (percobaan {attempts}/{max_attempts})...")
             
             # Scroll ke bagian bawah halaman untuk memastikan tombol terlihat
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
             time.sleep(2)
+            
+            # Tunggu sebentar untuk memastikan halaman sudah di-render sepenuhnya
+            try:
+                WebDriverWait(self.driver, 5).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "button"))
+                )
+            except:
+                pass  # Abaikan jika timeout
             
             # Coba temukan tombol dengan data-testid yang sesuai (berdasarkan hasil debugging)
             load_more_button = None
@@ -136,9 +146,13 @@ class GramediaScraper:
                     self.driver.execute_script("arguments[0].click();", load_more_button)
                     print("Tombol berhasil diklik, menunggu konten baru dimuat...")
                     time.sleep(3)  # Tunggu konten baru dimuat
+                    consecutive_failures = 0  # Reset counter kegagalan berturut-turut
                 else:
                     print("Tombol ditemukan tetapi tidak terlihat atau tidak aktif")
-                    break
+                    consecutive_failures += 1
+                    if consecutive_failures >= max_consecutive_failures:
+                        print(f"Tombol tidak aktif selama {consecutive_failures} kali berturut-turut. Berhenti mencoba.")
+                        break
             except NoSuchElementException:
                 print("Tidak dapat menemukan tombol dengan data-testid='categoriesLoadMore'")
                 
@@ -153,6 +167,7 @@ class GramediaScraper:
                         self.driver.execute_script("arguments[0].click();", xpath_button)
                         clicked = True
                         time.sleep(3)  # Tunggu konten baru dimuat
+                        consecutive_failures = 0  # Reset counter kegagalan berturut-turut
                 except Exception as e:
                     print(f"Tidak dapat menemukan tombol dengan XPath: {str(e)}")
                 
@@ -168,7 +183,10 @@ class GramediaScraper:
                                     self.driver.execute_script("arguments[0].click();", button)
                                     clicked = True
                                     time.sleep(3)  # Tunggu konten baru dimuat
+                                    consecutive_failures = 0  # Reset counter kegagalan berturut-turut
                                     break
+                            except StaleElementReferenceException:
+                                continue  # Elemen sudah tidak valid, lanjut ke elemen berikutnya
                             except:
                                 continue
                     except Exception as e:
@@ -176,14 +194,25 @@ class GramediaScraper:
                 
                 if not clicked:
                     print("Tidak dapat menemukan tombol 'Muat Lebih Banyak' dengan cara apapun")
-                    # Simpan HTML halaman untuk debugging
-                    with open(f"debug_load_more_attempt_{attempts}.html", "w", encoding="utf-8") as f:
-                        f.write(self.driver.page_source)
-                    print(f"HTML halaman disimpan ke debug_load_more_attempt_{attempts}.html untuk debugging")
-                    break
+                    consecutive_failures += 1
+                    if consecutive_failures >= max_consecutive_failures:
+                        print(f"Gagal menemukan tombol selama {consecutive_failures} kali berturut-turut. Berhenti mencoba.")
+                        # Simpan HTML halaman untuk debugging
+                        with open(f"debug_load_more_attempt_{attempts}.html", "w", encoding="utf-8") as f:
+                            f.write(self.driver.page_source)
+                        print(f"HTML halaman disimpan ke debug_load_more_attempt_{attempts}.html untuk debugging")
+                        break
+            except StaleElementReferenceException:
+                print("Elemen tombol sudah tidak valid (stale). Mencoba lagi...")
+                consecutive_failures += 1
+                time.sleep(2)  # Tunggu sebentar dan coba lagi
+                continue
             except Exception as e:
                 print(f"Error saat mencoba mengklik tombol: {str(e)}")
-                break
+                consecutive_failures += 1
+                if consecutive_failures >= max_consecutive_failures:
+                    print(f"Error berturut-turut sebanyak {consecutive_failures} kali. Berhenti mencoba.")
+                    break
             
             # Ambil link produk baru
             new_elements = []
@@ -215,9 +244,20 @@ class GramediaScraper:
             
             if new_links_added == 0:
                 print("Tidak ada link produk baru yang ditemukan setelah mengklik tombol")
-                break
-            
-            print(f"Berhasil menambahkan {new_links_added} produk baru (total: {len(product_links)})")
+                consecutive_failures += 1
+                if consecutive_failures >= max_consecutive_failures:
+                    print(f"Tidak ada produk baru selama {consecutive_failures} kali berturut-turut. Kemungkinan sudah tidak ada produk lagi.")
+                    break
+            else:
+                print(f"Berhasil menambahkan {new_links_added} produk baru (total: {len(product_links)})")
+                consecutive_failures = 0  # Reset counter kegagalan berturut-turut
+        
+        if attempts >= max_attempts:
+            print(f"Mencapai batas maksimum percobaan ({max_attempts}). Berhenti mencoba.")
+        elif consecutive_failures >= max_consecutive_failures:
+            print(f"Mencapai batas kegagalan berturut-turut ({max_consecutive_failures}). Kemungkinan sudah tidak ada produk lagi.")
+        elif len(product_links) >= max_products:
+            print(f"Berhasil mengumpulkan {len(product_links)} produk sesuai target.")
         
         print(f"Total link produk yang dikumpulkan: {len(product_links)}")
         return product_links[:max_products]

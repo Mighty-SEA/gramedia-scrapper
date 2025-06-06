@@ -9,6 +9,7 @@ Script Python untuk mengumpulkan data produk buku dari situs Gramedia.com.
 - Menyimpan data dalam format JSON
 - Mendukung tombol "Muat Lebih Banyak" untuk mengambil lebih dari 49 produk
 - Mode headless dan non-headless
+- Kemampuan mengambil produk dalam jumlah besar (ratusan hingga ribuan)
 
 ## Persyaratan
 
@@ -83,9 +84,15 @@ Jika scraper tidak berjalan dengan baik, coba langkah-langkah berikut:
    ```
    Script ini akan mencoba mengklik tombol dan menyimpan informasi debugging di folder `debug`.
 
-4. Periksa file `gramedia_page.html` yang dibuat jika scraper tidak dapat menemukan produk.
+4. Untuk menguji batas maksimal produk yang bisa diambil, gunakan:
+   ```bash
+   python debug_load_more_limit.py
+   ```
+   Script ini akan terus mengklik tombol "Muat Lebih Banyak" sampai tombol tidak tersedia lagi.
 
-5. Pastikan koneksi internet Anda stabil.
+5. Periksa file `gramedia_page.html` yang dibuat jika scraper tidak dapat menemukan produk.
+
+6. Pastikan koneksi internet Anda stabil.
 
 ## Format Data Output
 
@@ -116,8 +123,15 @@ Data akan disimpan dalam format JSON dengan struktur sebagai berikut:
 - Gunakan script ini dengan bijak dan bertanggung jawab
 - Berikan jeda waktu yang cukup antara request untuk menghindari pembatasan akses dari server
 - Script ini dibuat untuk tujuan pembelajaran dan penggunaan pribadi
+- Perhatikan bahwa situs web dapat memiliki batas jumlah produk yang bisa ditampilkan
 
 ## Update Terbaru
+
+- **v1.2.0** - Peningkatan kemampuan mengambil produk dalam jumlah besar
+  - Meningkatkan jumlah maksimum percobaan klik tombol "Muat Lebih Banyak" (dari 10 menjadi 100)
+  - Menambahkan deteksi kegagalan berturut-turut untuk menghentikan scraping jika tombol tidak berfungsi
+  - Menambahkan penanganan StaleElementReferenceException untuk elemen yang sudah tidak valid
+  - Menambahkan script debug baru (`debug_load_more_limit.py`) untuk menguji batas maksimal produk
 
 - **v1.1.0** - Perbaikan dukungan tombol "Muat Lebih Banyak" untuk mengambil lebih dari 49 produk
   - Menambahkan selector yang tepat untuk tombol "Muat Lebih Banyak" (`button[data-testid='categoriesLoadMore']`)
